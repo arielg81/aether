@@ -11,9 +11,13 @@
 #include <winsock2.h>
 #define poll WSAPoll
 typedef ULONG nfds_t;
+/* On Windows, pollfd.fd is SOCKET (an unsigned integer type).
+ * Use this typedef for comparisons/assignments so -Wsign-compare is not triggered. */
+typedef SOCKET aether_io_poll_fd_t;
 #else
 #include <poll.h>
 #include <unistd.h>
+typedef int aether_io_poll_fd_t;
 #endif
 
 #ifndef AETHER_IO_MAX_FDS
@@ -51,7 +55,7 @@ int aether_io_poller_add(AetherIoPoller* poller, int fd, void* actor, uint32_t e
 
     // Check if fd already registered — update in place
     for (int i = 0; i < pb->count; i++) {
-        if (pb->fds[i].fd == fd) {
+        if (pb->fds[i].fd == (aether_io_poll_fd_t)fd) {
             pb->fds[i].events = 0;
             if (events & AETHER_IO_READ)  pb->fds[i].events |= POLLIN;
             if (events & AETHER_IO_WRITE) pb->fds[i].events |= POLLOUT;
@@ -71,7 +75,7 @@ int aether_io_poller_add(AetherIoPoller* poller, int fd, void* actor, uint32_t e
     }
 
     struct pollfd* pfd = &pb->fds[pb->count];
-    pfd->fd = fd;
+    pfd->fd = (aether_io_poll_fd_t)fd;
     pfd->events = 0;
     pfd->revents = 0;
     if (events & AETHER_IO_READ)  pfd->events |= POLLIN;
@@ -85,7 +89,7 @@ void aether_io_poller_remove(AetherIoPoller* poller, int fd) {
     if (!pb) return;
 
     for (int i = 0; i < pb->count; i++) {
-        if (pb->fds[i].fd == fd) {
+        if (pb->fds[i].fd == (aether_io_poll_fd_t)fd) {
             // Swap with last element for O(1) removal
             pb->fds[i] = pb->fds[pb->count - 1];
             pb->count--;
@@ -105,7 +109,7 @@ int aether_io_poller_poll(AetherIoPoller* poller, AetherIoEvent* out, int max_ev
     for (int i = 0; i < pb->count && count < max_events; i++) {
         if (pb->fds[i].revents == 0) continue;
 
-        out[count].fd = pb->fds[i].fd;
+        out[count].fd = (int)pb->fds[i].fd;
         out[count].events = 0;
         if (pb->fds[i].revents & POLLIN)                out[count].events |= AETHER_IO_READ;
         if (pb->fds[i].revents & POLLOUT)               out[count].events |= AETHER_IO_WRITE;

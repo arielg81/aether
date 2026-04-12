@@ -1,7 +1,17 @@
 // Portable poll() fallback
 // Included by aether_poller.c when no platform-specific backend is available
 
-#include <poll.h>
+#ifdef _WIN32
+#  include <winsock2.h>
+#  include <poll.h>
+   /* On Windows, pollfd.fd is SOCKET (an unsigned integer type).
+    * Use this typedef everywhere inside this file so comparisons and
+    * assignments match the field type and don't trigger -Wsign-compare. */
+   typedef SOCKET aether_poll_fd_t;
+#else
+#  include <poll.h>
+   typedef int aether_poll_fd_t;
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -34,7 +44,7 @@ void aether_poller_destroy(AetherPoller* p) {
     free(p);
 }
 
-static int poller_find(AetherPoller* p, int fd) {
+static int poller_find(AetherPoller* p, aether_poll_fd_t fd) {
     for (int i = 0; i < p->count; i++) {
         if (p->entries[i].pfd.fd == fd) return i;
     }
@@ -42,7 +52,7 @@ static int poller_find(AetherPoller* p, int fd) {
 }
 
 int aether_poller_add(AetherPoller* p, int fd, int events, void* user_data) {
-    if (poller_find(p, fd) >= 0) return -1;  // already registered
+    if (poller_find(p, (aether_poll_fd_t)fd) >= 0) return -1;  // already registered
 
     if (p->count >= p->capacity) {
         int nc = p->capacity * 2;
@@ -53,7 +63,7 @@ int aether_poller_add(AetherPoller* p, int fd, int events, void* user_data) {
     }
 
     PollEntry* e = &p->entries[p->count++];
-    e->pfd.fd = fd;
+    e->pfd.fd = (aether_poll_fd_t)fd;
     e->pfd.events = 0;
     if (events & AETHER_POLL_READ)  e->pfd.events |= POLLIN;
     if (events & AETHER_POLL_WRITE) e->pfd.events |= POLLOUT;
@@ -63,7 +73,7 @@ int aether_poller_add(AetherPoller* p, int fd, int events, void* user_data) {
 }
 
 int aether_poller_remove(AetherPoller* p, int fd) {
-    int idx = poller_find(p, fd);
+    int idx = poller_find(p, (aether_poll_fd_t)fd);
     if (idx < 0) return -1;
 
     // Swap with last entry
@@ -72,7 +82,7 @@ int aether_poller_remove(AetherPoller* p, int fd) {
 }
 
 int aether_poller_modify(AetherPoller* p, int fd, int events, void* user_data) {
-    int idx = poller_find(p, fd);
+    int idx = poller_find(p, (aether_poll_fd_t)fd);
     if (idx < 0) return -1;
 
     PollEntry* e = &p->entries[idx];
@@ -98,7 +108,7 @@ int aether_poller_wait(AetherPoller* p, AetherPollEvent* out, int max_events, in
     for (int i = 0; i < p->count && out_count < max_events; i++) {
         if (pfds[i].revents == 0) continue;
 
-        out[out_count].fd = pfds[i].fd;
+        out[out_count].fd = (int)pfds[i].fd;
         out[out_count].events = 0;
         out[out_count].user_data = p->entries[i].user_data;
 
